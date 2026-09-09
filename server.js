@@ -351,6 +351,7 @@ setInterval(() => {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname));
 // ==================== PIN LOCK ====================
 const PIN = '709177';
 const PIN_TOKENS = new Set();
