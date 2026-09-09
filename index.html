@@ -335,6 +335,8 @@ const up=ms=>{if(!ms)return'—';const s=Math.floor((Date.now()-ms)/1000);return
 function renderS(){
   const g=$('sg');
   const snap={};
+  const act=document.activeElement; let focusId=null, focusNum=false, focusCaret=-1;
+  if(act){ const card=act.closest('.ss'); if(card&&card.dataset.sid){ focusId=card.dataset.sid; focusNum=act.classList.contains('pairNum'); focusCaret=act.selectionStart||-1; } }
   document.querySelectorAll('.ss').forEach(el=>{
     const id=el.dataset.sid; if(!id)return;
     const pb=el.querySelector('.pairb'),co=el.querySelector('.codeOut'),pn=el.querySelector('.pairNum'),cv=el.querySelector('.codeVal'),wt=el.querySelector('.wait');
@@ -396,6 +398,8 @@ function renderS(){
       const co=d.querySelector('.codeOut');if(sn.codeShow){co.style.display='block';d.querySelector('.codeVal').textContent=sn.codeVal;}
       const wt=d.querySelector('.wait');if(sn.wait)wt.style.display='block';}
   });
+  // restore focus so the mobile keyboard never dies on rebuild
+  if(focusId){ const card=g.querySelector(`.ss[data-sid="${focusId}"]`); if(card){ const inp=card.querySelector('.pairNum'); if(inp){ inp.focus(); if(focusCaret>=0){ try{ inp.setSelectionRange(focusCaret, focusCaret); }catch(e){} } } } }
 }
 async function pick(id){selected=id;await api('/api/session/select',{sessionId:id}).catch(()=>{});renderS();renderTgt();}
 
@@ -417,7 +421,7 @@ async function linkCheck(){
   box.innerHTML='<span class="hint">🔍 Scanning invite...</span>';
   const r=await api('/api/link/check',{link});
   if(!r.ok){box.innerHTML='<div class="box warn">❌ '+esc(r.error||'check failed')+'</div>';return;}
-  let h=r.info?`<div class="box info">🌍 Group <b>${esc(r.info.subject)}</b>${r.info.size?' • '+r.info.size+' members':''}${r.info.id?' • '+esc(r.info.id):''} — invite valid</div>`:'<div class="box info">🌍 Invite valid</div>';
+  let h=r.info?`<div class="box info">🌍 Group <b>${esc(r.info.subject)}</b>${r.info.size?' • '+r.info.size+' members':''}${r.info.id?' • '+esc(r.info.id):''}${r.info.restrict?' • 🔒 info=admins only':' • ✏️ info=all'}</div>`:'<div class="box info">🌍 Invite valid</div>';
   const mm=r.members||[],nn=r.nonMembers||[];
   if(!mm.length&&!nn.length){box.innerHTML=h+'<div class="hint" style="margin-top:8px">No sessions connected — add & pair a bot first.</div>';return;}
   mm.forEach(m=>h+=`<div class="lrow"><span class="bot">🛸 ${esc(m.name)}</span><span class="ok">✔ ALREADY IN GROUP</span></div>`);
@@ -522,10 +526,14 @@ function refreshOps(){
 }
 
 /* ============ RENDER ============ */
+let lastSessSig='';
+function sessSig(ss){ try{ return JSON.stringify((ss||[]).map(s=>[s.id,s.connected,s.phase,s.number,s.pairPhone,s.uptimeAt,(s.lastError||'').slice(0,40)])); }catch(e){ return ''; } }
 function render(st){
   sessions=st.sessions||[];selected=st.selected||(sessions[0]&&sessions[0].id)||null;
   loops=st.loops||{};if(st.custom)Object.assign(cust,st.custom);
-  renderS();renderTgt();
+  const sig=sessSig(sessions);
+  if(sig!==lastSessSig||document.querySelector('.ss')===null){ renderS(); lastSessSig=sig; } // no rebuild while typing → keyboard stays
+  renderTgt();
   const s=selS(),el=$('selPill');
   el.textContent=s?('SELECTED: '+(s.connected?'● ':'')+s.name):'NO BOT';
   el.className='p '+(s&&s.connected?'g':(s?'y':'r'));
