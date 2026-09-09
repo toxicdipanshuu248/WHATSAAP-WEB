@@ -11,7 +11,6 @@ import pino from 'pino';
 import express from 'express';
 import fs from 'fs';
 import path from 'path';
-import crypto from 'crypto';
 import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -351,16 +350,6 @@ setInterval(() => {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname)); // fallback: repo-root layout (index.html at root)
-// ==================== PIN LOCK ====================
-const PIN = '709177';
-const PIN_TOKENS = new Set();
-const isUnlocked = (req) => { const t = String(req.headers['x-fyt-token'] || ''); return !!t && PIN_TOKENS.has(t); };
-app.post('/api/unlock', (req, res) => { try {
-    if (String(req.body?.pin || '') === PIN) { const tk = crypto.randomUUID().replace(/-/g, ''); if (PIN_TOKENS.size > 400) PIN_TOKENS.clear(); PIN_TOKENS.add(tk); res.json({ ok: true, token: tk }); }
-    else res.json({ ok: false, error: 'Wrong PIN' });
-} catch (e) { res.json({ ok: false, error: e.message }); } });
-app.post('/api/*', (req, res, next) => { if (req.path === '/api/unlock' || isUnlocked(req)) return next(); res.status(403).json({ ok: false, error: 'Locked — enter PIN to operate', locked: true }); });
 // ==================== CUSTOM ROTATION ====================
 const saveCustom = () => { try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); fs.writeFileSync(path.join(__dirname, 'data', 'custom.json'), JSON.stringify(CUSTOM, null, 2)); } catch (e) {} };
 app.post('/api/custom', (req, res) => { try {
@@ -445,7 +434,7 @@ app.post('/api/stop', async (req, res) => {
 
 // ==================== BOOT ====================
 app.listen(PORT, '0.0.0.0', () => {
-    console.log(`\n${BRAND}\n🐉 DEV WP FYT SYSTEM v7.3.8 (GALAXY — PIN LOCKED) → http://0.0.0.0:${PORT}\n`);
+    console.log(`\n${BRAND}\n🐉 DEV WP FYT SYSTEM v7.3.8 (GALAXY — OPEN EDITION) → http://0.0.0.0:${PORT}\n`);
     try { CUSTOM = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'custom.json'), 'utf-8')) || {}; } catch (e) { CUSTOM = {}; }
     const saved = loadSessions();
     if (!saved.length) { const s = newSession('s1', 'Bot 1'); connectWA(s).catch(() => {}); }
