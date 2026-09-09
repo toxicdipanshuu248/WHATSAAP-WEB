@@ -630,7 +630,8 @@ async function fire(){
   if(a==='swipe')body.victim=$('vic').value.trim();
   if(a==='kickall')body.kickOk=true;
   const r=await api('/api/start',body);
-  if(!r.ok){const eb=$('errB');eb.style.display='block';eb.textContent='❌ '+(r.error||'launch failed');}
+  if(r&&r.silent){ return; }                    // privacy-blocked → silent, no popup (telemetry line hi kaafi)
+  if(r&&!r.ok){const eb=$('errB');eb.style.display='block';eb.textContent='❌ '+(r.error||'launch failed');}
 }
 boot();
 </script>
