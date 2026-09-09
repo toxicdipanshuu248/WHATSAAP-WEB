@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.join(__dirname, 'data');
 const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 const logger = pino({ level: 'silent' });
-const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆v 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
+const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
 
 const delayMs = (ms) => new Promise(r => setTimeout(r, ms));
 const rnd = (a, b) => { const lo = Math.max(0, Math.floor(Number(a) || 0)); const hi = Math.max(lo + 1, Math.floor(Number(b) || lo + 1)); return lo + Math.floor(Math.random() * (hi - lo + 1)); };
@@ -38,7 +38,8 @@ const log = (tag, kind, msg) => { S.logs.unshift({ t: Date.now(), tag: tag || 's
 
 fs.mkdirSync(DATA_DIR, { recursive: true });
 const saveSessions = () => { try { fs.writeFileSync(SESS_FILE, JSON.stringify(Object.values(S.sessions).map(s => ({ id: s.id, name: s.name })), null, 2)); } catch (e) {} };
-const loadSessions = () => { try { return JSON.parse(fs.readFileSync(SESS_FILE, 'utf8') || '[]'); } catch (e) { return []; } };
+const hasCreds = (id) => { try { const p = path.join(DATA_DIR, 'auth', String(id), 'creds.json'); if (!fs.existsSync(p)) return false; const c = JSON.parse(fs.readFileSync(p, 'utf8')); return !!(c && (c.me || (c.account && c.account.registered !== false))); } catch (e) { return false; } };
+const loadSessions = () => { try { const arr = JSON.parse(fs.readFileSync(SESS_FILE, 'utf8') || '[]'); const ok = (arr || []).filter(r => r && r.id && hasCreds(r.id)); if (ok.length !== (arr || []).length) { try { fs.writeFileSync(SESS_FILE, JSON.stringify(ok, null, 2)); } catch (e) {} } return ok; } catch (e) { return []; } };
 
 // crash guards
 process.on('uncaughtException', (e) => { try { log('sys', 'err', '[CRASH-GUARD] ' + String(e?.stack || e?.message || e).slice(0, 220)); } catch (_) {} });
@@ -151,8 +152,10 @@ async function connectWA(s) {
 async function requestPair(s, phone) {
     const clean = cleanPhone(phone);
     if (!clean || clean.length < 8 || clean.length > 15) throw new Error('Enter a valid phone number with country code (e.g. 919876543210)');
-    if (!s.sock) { await connectWA(s); await delayMs(2200); }
-    if (!s.sock) throw new Error('Engine not ready yet — try again in a few seconds');
+    if (!s.sock && !s.sockRef) connectWA(s).catch(() => {});
+    const t0 = Date.now();
+    while (!s.sock && !s.manualStop && !s.destroyed && Date.now() - t0 < 40000) await delayMs(900);
+    if (!s.sock) throw new Error('Engine could not start — try again in a moment');
     if (s.connected && s.jid) throw new Error('This session is already connected');
     s.pairPhone = clean; s.lastError = null;
     let lastErr = null;
@@ -350,7 +353,7 @@ setInterval(() => {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
-app.use(express.static(__dirname)); // ROOT fallback — repo layout: index.html at repo root (no public/ folder)
+app.use(express.static(__dirname)); // ROOT fallback — repo layout (index.html at root)
 // ==================== CUSTOM ROTATION ====================
 const saveCustom = () => { try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); fs.writeFileSync(path.join(__dirname, 'data', 'custom.json'), JSON.stringify(CUSTOM, null, 2)); } catch (e) {} };
 app.post('/api/custom', (req, res) => { try {
@@ -372,7 +375,7 @@ app.post('/api/session/add', (req, res) => {
     try {
         const n = Object.keys(S.sessions).length + 1;
         const s = newSession('s' + n, String(req.body?.name || ('Bot ' + n)).slice(0, 24));
-        connectWA(s).catch(() => {});
+        log(s.id, 'sys', `🆕 ${s.name} created (idle) — use PAIR CODE to connect & get code`);
         res.json({ ok: true, session: pub(s) });
     } catch (e) { res.json({ ok: false, error: e.message }); }
 });
@@ -437,9 +440,9 @@ app.post('/api/stop', async (req, res) => {
 app.listen(PORT, '0.0.0.0', () => {
     console.log(`\n${BRAND}\n🐉 DEV WP FYT SYSTEM v7.3.8 (GALAXY — OPEN EDITION) → http://0.0.0.0:${PORT}\n`);
     try { CUSTOM = JSON.parse(fs.readFileSync(path.join(__dirname, 'data', 'custom.json'), 'utf-8')) || {}; } catch (e) { CUSTOM = {}; }
-    const saved = loadSessions();
-    if (!saved.length) { const s = newSession('s1', 'Bot 1'); connectWA(s).catch(() => {}); }
-    else for (const r of saved) { const s = newSession(r.id, r.name); connectWA(s).catch(() => {}); }
+    const restored = loadSessions();
+    for (const r of restored) { const s = newSession(r.id, r.name); connectWA(s).catch(() => {}); }
+    if (!Object.keys(S.sessions).length) log('sys', 'sys', '🆕 No bots yet — click ADD BOT to create (engine stays idle until paired)');
     setTimeout(() => { for (const s of Object.values(S.sessions)) refreshGroups(s).catch(() => {}); }, 6000);
 });
 process.on('SIGTERM', () => { stopLoops(); for (const s of Object.values(S.sessions)) { try { s.sock?.end(new Error('shutdown')); } catch (e) {} } setTimeout(() => process.exit(0), 500); });
