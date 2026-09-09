@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.join(__dirname, 'data');
 const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 const logger = pino({ level: 'silent' });
-const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆v 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
+const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄDev 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
 
 const delayMs = (ms) => new Promise(r => setTimeout(r, ms));
 const rnd = (a, b) => { const lo = Math.max(0, Math.floor(Number(a) || 0)); const hi = Math.max(lo + 1, Math.floor(Number(b) || lo + 1)); return lo + Math.floor(Math.random() * (hi - lo + 1)); };
@@ -222,14 +222,31 @@ async function isMember(s, jid) {
 }
 async function acceptInvite(sock, code) {
     // Baileys rc.9 = groupAcceptInvite(code) -> jid ; older builds = groupAcceptInviteCode(code)
-    const cands = ['groupAcceptInvite', 'groupAcceptInviteCode'];
-    for (const name of cands) {
-        if (typeof sock[name] === 'function') {
-            try { const out = await sock[name](code); if (out) return out; }
-            catch (e) { throw new Error(String(e?.message || e).slice(0, 120)); } // surface the real WhatsApp error
-        }
+    // v3: never fake a "method missing" error — try each real method & surface WhatsApp's actual reply
+    const tryM = async (name) => {
+        if (typeof sock?.[name] !== 'function') return null;
+        const out = await sock[name](code);
+        return out;
+    };
+    const explain = (raw) => {
+        const m = String(raw?.message || raw || '');
+        if (/already|participant|added/i.test(m)) return 'Bot is already in this group (check panel: it shows ✔ ALREADY IN GROUP)';
+        if (/bad-request|400/i.test(m)) return 'WhatsApp rejected this invite: link invalid, expired, group full, or joining disabled — use a fresh invite link';
+        if (/not an admin|forbidden|403/i.test(m)) return 'Joining denied by group settings';
+        return m.slice(0, 140) || 'Join failed';
+    };
+    let lastErr = null;
+    for (const name of ['groupAcceptInvite', 'groupAcceptInviteCode']) {
+        try {
+            const out = await tryM(name);
+            if (out) return out;
+            lastErr = new Error('empty result');
+        } catch (e) { lastErr = e; break; } // method exists but WhatsApp answered → that IS the answer
     }
-    throw new Error('No join method available in this Baileys build');
+    if (lastErr) throw new Error(explain(lastErr));
+    // genuinely missing on this build → diagnostic instead of a dead-end message
+    const hasG = Object.keys(sock || {}).filter(k => /group/i.test(k)).join(',') || 'none';
+    throw new Error('Join engine unavailable on this build — group methods found: ' + hasG.slice(0, 200));
 }
 async function linkJoin(s, link) {
     const code = inviteCode(link);
@@ -444,8 +461,9 @@ app.post('/api/start', async (req, res) => {
             const editsInfo = (action === 'name' || action === 'domain' || action === 'rapid' || action === 'cnc' || action === 'desc'); // subject/desc ops
             const postsMsgs = (action === 'spam' || action === 'tagall' || action === 'swipe'); // send-message ops
             if (action === 'kickall' && !isAdmin) return res.json({ ok: false, error: 'KICKALL removes members — the bot MUST be a GROUP ADMIN' });
-            if (editsInfo && restrict && !isAdmin) return res.json({ ok: false, error: `🔒 Group admin-privacy is ON ('edit info: only admins') — bot is NOT admin, so ${action.toUpperCase()} silently skipped. Make bot admin or open group settings.` });
-            if (postsMsgs && announce && !isAdmin) return res.json({ ok: false, error: `🔒 Group admin-privacy is ON ('send msgs: only admins') — bot is NOT admin, so ${action.toUpperCase()} silently skipped.` });
+            // privacy ON + bot NOT admin → SILENT skip (as required): one quiet telemetry line only
+            if (editsInfo && restrict && !isAdmin) { log(s.id, 'warn', `🔕 ${action} SKIPPED (silent) — group '${gname || jid}' edit-info = admins only, bot is member`); return res.json({ ok: false, silent: true }); }
+            if (postsMsgs && announce && !isAdmin) { log(s.id, 'warn', `🔕 ${action} SKIPPED (silent) — group '${gname || jid}' send-msgs = admins only, bot is member`); return res.json({ ok: false, silent: true }); }
             log(s.id, 'sys', `🔍 Pre-flight OK → '${gname || jid}' [bot ${isAdmin ? 'ADMIN' : 'member'} • privacy: info${restrict ? '=admins' : '=all'} / msgs${announce ? '=admins' : '=all'}]`);
         }
         if (action === 'rapid' && !/^[0-6]$/.test(String(style !== undefined ? style : mode || ''))) return res.json({ ok: false, error: 'Pick RAPID style 0-6' });
