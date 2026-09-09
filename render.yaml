@@ -1,0 +1,26 @@
+# Render.com blueprint — DEV WP FYT SYSTEM v7.3.8
+# 1) Push this folder to a GitHub repo
+# 2) On render.com: New → Blueprint → connect the repo
+# 3) Render creates the web service automatically
+
+services:
+  - type: web
+    name: dev-wp-fyt-system
+    runtime: node
+    plan: free
+    buildCommand: npm install --no-audit --no-fund
+    startCommand: npm start
+    healthCheckPath: /
+    envVars:
+      - key: PORT
+        value: 3000
+
+# ⚠ IMPORTANT — WhatsApp auth persistence:
+# Render's FREE plan has an EPHEMERAL disk: every time the service sleeps
+# (≈15 min idle) or redeploys, /data/auth is wiped and bots must be re-paired.
+# For permanent sessions use a paid Render plan with a persistent disk:
+#    disk:
+#      name: whatsapp-data
+#      mountPath: /opt/render/project/src/data
+#      sizeGB: 1
+# (uncomment the block above when using a non-free plan)

@@ -1,0 +1,20 @@
+{
+  "name": "gabbar-waweb",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "GABBAR WEB — WhatsApp pairing + message/name-changer control panel",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js"
+  },
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "dependencies": {
+    "@whiskeysockets/baileys": "7.0.0-rc.9",
+    "@hapi/boom": "^10.0.1",
+    "express": "^4.19.2",
+    "pino": "^9.5.0"
+  }
+}
