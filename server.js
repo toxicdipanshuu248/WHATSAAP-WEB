@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.join(__dirname, 'data');
 const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 const logger = pino({ level: 'silent' });
-const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
+const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆v 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
 
 const delayMs = (ms) => new Promise(r => setTimeout(r, ms));
 const rnd = (a, b) => { const lo = Math.max(0, Math.floor(Number(a) || 0)); const hi = Math.max(lo + 1, Math.floor(Number(b) || lo + 1)); return lo + Math.floor(Math.random() * (hi - lo + 1)); };
@@ -350,6 +350,7 @@ setInterval(() => {
 const app = express();
 app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, 'public')));
+app.use(express.static(__dirname)); // ROOT fallback — repo layout: index.html at repo root (no public/ folder)
 // ==================== CUSTOM ROTATION ====================
 const saveCustom = () => { try { fs.mkdirSync(path.join(__dirname, 'data'), { recursive: true }); fs.writeFileSync(path.join(__dirname, 'data', 'custom.json'), JSON.stringify(CUSTOM, null, 2)); } catch (e) {} };
 app.post('/api/custom', (req, res) => { try {
