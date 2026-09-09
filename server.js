@@ -18,7 +18,7 @@ const PORT = Number(process.env.PORT || 3000);
 const DATA_DIR = path.join(__dirname, 'data');
 const SESS_FILE = path.join(DATA_DIR, 'sessions.json');
 const logger = pino({ level: 'silent' });
-const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
+const BRAND = 'ᚔ᚜ 𓆩『𓍼ֶָ֢˖ ࣪ꨄ𝐃⃝𝛆v 𝐖𝐏 𝐅𝐘𝐓 𝐒𝐘𝐒𝐓𝐄𝐌 .་༘࿐』𓆪 ᚛ᚔ🐉';
 
 const delayMs = (ms) => new Promise(r => setTimeout(r, ms));
 const rnd = (a, b) => { const lo = Math.max(0, Math.floor(Number(a) || 0)); const hi = Math.max(lo + 1, Math.floor(Number(b) || lo + 1)); return lo + Math.floor(Math.random() * (hi - lo + 1)); };
@@ -26,6 +26,7 @@ const cleanPhone = (p) => { let d = String(p || '').replace(/\D/g, ''); if (d.st
 const jidFromNumber = (n) => { const d = cleanPhone(n); return d ? `${d}@s.whatsapp.net` : null; };
 const digits = (j) => String(j || '').split('@')[0].replace(/\D/g, '');
 const jidEq = (a, b) => a && b && digits(a) === digits(b);
+const jidShort = (j) => { const raw = String(j || '').split('@')[0]; return String(j || '').endsWith('@g.us') ? 'GROUP #' + raw.slice(-6).toUpperCase() : '+' + raw; };
 const isGrp = (j) => String(j || '').endsWith('@g.us');
 const cut = (t, n = 180) => { const a = Array.from(String(t || '')); return a.length > n ? a.slice(0, n).join('') : String(t || ''); };
 const inviteCode = (link) => { const m = String(link || '').match(/chat\.whatsapp\.com\/([A-Za-z0-9_-]{10,})/i); if (m) return m[1]; const t = String(link || '').trim(); return /^[A-Za-z0-9_-]{10,32}$/.test(t) && !/^\d{5,20}$/.test(t) ? t : null; };
@@ -210,7 +211,7 @@ async function linkCheck(link) {
     } else {
         // invite valid but group hidden — try metadata via selected session
         const sel = S.sessions[S.selected];
-        if (sel?.connected) { try { const m = await sel.sock.groupMetadata(await sel.sock.groupAcceptInviteCode ? null : null); } catch (e) {} }
+        if (sel?.connected) { try { await sel.sock.groupMetadata(sel.jid); } catch (e) {} }
         out.info = { id: null, subject: 'Invite valid', size: 0 };
         for (const s of Object.values(S.sessions)) if (s.connected) out.nonMembers.push({ id: s.id, name: s.name });
     }
@@ -219,10 +220,23 @@ async function linkCheck(link) {
 async function isMember(s, jid) {
     try { await s.sock.groupMetadata(jid); return s.groups.some(g => g.jid === jid) || true; } catch (e) { return false; }
 }
+async function acceptInvite(sock, code) {
+    // Baileys rc.9 = groupAcceptInvite(code) -> jid ; older builds = groupAcceptInviteCode(code)
+    const cands = ['groupAcceptInvite', 'groupAcceptInviteCode'];
+    for (const name of cands) {
+        if (typeof sock[name] === 'function') {
+            try { const out = await sock[name](code); if (out) return out; }
+            catch (e) { throw new Error(String(e?.message || e).slice(0, 120)); } // surface the real WhatsApp error
+        }
+    }
+    throw new Error('No join method available in this Baileys build');
+}
 async function linkJoin(s, link) {
     const code = inviteCode(link);
     if (!code) throw new Error('Paste a valid invite link');
-    const jid = await s.sock.groupAcceptInviteCode(code);
+    let jid = await acceptInvite(s.sock, code);
+    if (jid && String(jid).includes('@')) jid = String(jid); else { jid = await s.sock.groupAcceptInvite(code).catch(() => null); }
+    if (!jid || !String(jid).includes('@g.us')) { jid = String(jid || '').replace(/[^@]/g, '') ? jid : null; if (!jid) throw new Error('Join failed — group not returned'); }
     await refreshGroups(s, true);
     const g = s.groups.find(x => x.jid === jid) || { jid, subject: 'Joined' };
     log(s.id, 'ok', `🔗 ${s.name} JOINED ${g.subject}`);
@@ -276,7 +290,8 @@ function stopLoops(sid) { for (const k of Object.keys(S.loops)) { if (!sid || S.
 function stopAction(sid, action, target) { let n = 0; for (const k of Object.keys(S.loops)) { const l = S.loops[k]; if ((!sid || l.sessionId === sid) && (!action || l.action === action) && (!target || l.target === target)) { stopLoopKey(k); n++; } } return n; }
 
 async function runOp(key, entry, cfg, w) {
-    const { action, lines, mode, dMin, dMax, iterations } = cfg;
+    const action = cfg.action || entry.action || 'op'; // never undefined
+    const { lines, mode, dMin, dMax, iterations } = cfg;
     const s = S.sessions[entry.sessionId];
     let errStreak = 0, participants = [];
     try {
@@ -311,7 +326,8 @@ async function runOp(key, entry, cfg, w) {
                 else if (action === 'tagall') await s.sock.sendMessage(entry.target, { text: cut(txt, 4000) || ' ', mentions: participants.map(p => p.id) });
                 else if (action === 'kickall') { const v = participants[Math.floor(rot) % participants.length]; if (v?.admin || v?.id === s.sock.user?.id) { await delayMs(300); continue; } await s.sock.groupParticipantsUpdate(entry.target, [v.id], 'remove'); }
                 errStreak = 0; cur.count++; cur.lastAt = Date.now(); cur.lastError = null;
-                if (cur.count % 10 === 0) log(s.id, 'ok', `${action} → ${cur.count}`);
+                if (cur.count <= 3) { const t0 = linesArr[Math.floor(rot) % linesArr.length] || ''; log(s.id, 'ok', `📨 ${entry.action || cfg.action || 'op'} #${cur.count} sent OK → ${(s.groups.find(g => g.jid === entry.target)?.subject || jidShort(entry.target))}: "${t0.slice(0, 40)}"`); }
+                if (cur.count % 25 === 0) log(s.id, 'ok', `${entry.action || cfg.action || 'op'} → ${cur.count}`);
             } catch (e) {
                 errStreak++; const m = String(e?.message || e); cur.lastError = m.slice(0, 110);
                 if (errStreak >= 5) { log(s.id, 'err', `${action} stop (${errStreak} errors): ${m.slice(0, 80)}`); stopLoopKey(key); return; }
@@ -404,6 +420,34 @@ app.post('/api/start', async (req, res) => {
         else jid = jidFromNumber(target || '');
         if (!jid) return res.json({ ok: false, error: 'No target — set a group via the LINK SYSTEM or enter a DM number' });
         if (action !== 'spam' && !isGrp(jid)) return res.json({ ok: false, error: `${action.toUpperCase()} requires a GROUP target` });
+        if (isGrp(jid)) {
+            // REAL pre-flight: verify bot is ACTUALLY in this group; check group PRIVACY settings
+            let inGrp = false, isAdmin = false, gname = '', restrict = false, announce = false;
+            try {
+                const meta = await s.sock.groupMetadata(jid);
+                const me = s.sock.user?.id;
+                const pp = meta?.participants || [];
+                const self = pp.find(p => p.id && me && jidEq(p.id, me));
+                inGrp = !!self;
+                isAdmin = !!(self && self.admin);
+                gname = String(meta?.subject || '');
+                restrict = !!meta?.restrict;   // true = ONLY admins can edit group info (subject/desc)
+                announce = !!meta?.announce;   // true = ONLY admins can send messages
+            } catch (e) {
+                inGrp = false; // lookup failed == bot not in group / stale jid
+            }
+            if (!inGrp) {
+                try { const all = await s.sock.groupFetchAllParticipating(); inGrp = !!all[jid]; } catch (e) {}
+            }
+            if (!inGrp) return res.json({ ok: false, error: 'Bot is NOT in this group — use GC LINK SYSTEM → JOIN NOW first' });
+            // NO blanket admin requirement. Privacy rules only:
+            const editsInfo = (action === 'name' || action === 'domain' || action === 'rapid' || action === 'cnc' || action === 'desc'); // subject/desc ops
+            const postsMsgs = (action === 'spam' || action === 'tagall' || action === 'swipe'); // send-message ops
+            if (action === 'kickall' && !isAdmin) return res.json({ ok: false, error: 'KICKALL removes members — the bot MUST be a GROUP ADMIN' });
+            if (editsInfo && restrict && !isAdmin) return res.json({ ok: false, error: `🔒 Group admin-privacy is ON ('edit info: only admins') — bot is NOT admin, so ${action.toUpperCase()} silently skipped. Make bot admin or open group settings.` });
+            if (postsMsgs && announce && !isAdmin) return res.json({ ok: false, error: `🔒 Group admin-privacy is ON ('send msgs: only admins') — bot is NOT admin, so ${action.toUpperCase()} silently skipped.` });
+            log(s.id, 'sys', `🔍 Pre-flight OK → '${gname || jid}' [bot ${isAdmin ? 'ADMIN' : 'member'} • privacy: info${restrict ? '=admins' : '=all'} / msgs${announce ? '=admins' : '=all'}]`);
+        }
         if (action === 'rapid' && !/^[0-6]$/.test(String(style !== undefined ? style : mode || ''))) return res.json({ ok: false, error: 'Pick RAPID style 0-6' });
         if (action === 'kickall' && !kickOk) return res.json({ ok: false, error: 'KICK confirmation required' });
         const lines = String(text || '').split('\n').map(l => l.trim()).filter(Boolean);
@@ -417,7 +461,7 @@ app.post('/api/start', async (req, res) => {
         const dMax = Math.max(dMin, Number(max) > 0 ? Number(max) : (defs || DEF_DL.spam)[1]);
         const cfg = { target: jid, victim: (action === 'swipe' && victim) ? (jidFromNumber(victim) || String(victim).trim()) : null, lines, mode: m, dMin, dMax, threads: Math.max(1, Math.min(20, Number(threads) || (action === 'name' ? DEF_THR[m] : DEF_THR[action]) || 1)), iterations: Math.max(0, Math.min(100000, Number(iterations) || 0)) };
         const r = startLoop(s, action, jid, cfg);
-        log(s.id, 'ok', `🔥 ${action.toUpperCase()} START → ${jid} [${dMin}-${dMax}ms ×${cfg.threads}${cfg.victim ? ' • victim ' + digits(cfg.victim) : ''}]`);
+        log(s.id, 'ok', `🔥 ${action.toUpperCase()} LIVE → ${isGrp(jid) ? 'group ' : 'DM '}${jid} [${dMin}-${dMax}ms ×${cfg.threads}${cfg.victim ? ' • victim ' + digits(cfg.victim) : ''}]`);
         res.json({ ok: true, key: r.key });
     } catch (e) { res.json({ ok: false, error: e.message }); }
 });
